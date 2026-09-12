@@ -1,6 +1,7 @@
 cmake_minimum_required (VERSION 3.14)
 cmake_policy(SET CMP0077 NEW)
-project(CMSISDSP_${PROJECT_NAME})
+
+set(CMSISDSP CMSISDSP_${PROJECT_NAME})
 
 # DSP Sources
 SET(DSP ${CMAKE_CURRENT_SOURCE_DIR}/..)
@@ -19,6 +20,8 @@ option(DISABLEFLOAT16 "Disable building float16 kernels" OFF)
 option(HOST "Build for host" OFF)
 option(AUTOVECTORIZE "Prefer autovectorizable code to one using C intrinsics" OFF)
 option(LAXVECTORCONVERSIONS "Lax vector conversions" ON)
+option(NEON_RIFFT_SCALING "Scaling of RIFFT with Neon" ON)
+option(FASTBUILD "Faster build" ON)
 
 ###########################
 #
@@ -26,46 +29,46 @@ option(LAXVECTORCONVERSIONS "Lax vector conversions" ON)
 #
 ###########################
 
-add_library(${PROJECT_NAME} STATIC)
+add_library(${CMSISDSP} STATIC)
 
 include(BasicMathFunctions/Config.cmake)
 
 include(ComplexMathFunctions/Config.cmake)
 
-  include(QuaternionMathFunctions/Config.cmake)
+include(QuaternionMathFunctions/Config.cmake)
 
-  include(ControllerFunctions/Config.cmake)
+include(ControllerFunctions/Config.cmake)
+ 
+include(FastMathFunctions/Config.cmake)
+ 
+include(FilteringFunctions/Config.cmake)
+ 
+include(MatrixFunctions/Config.cmake)
 
-  include(FastMathFunctions/Config.cmake)
+include(StatisticsFunctions/Config.cmake)
 
-  include(FilteringFunctions/Config.cmake)
+include(SupportFunctions/Config.cmake)
 
-  include(MatrixFunctions/Config.cmake)
+include(TransformFunctions/Config.cmake)
+ 
+include(CommonTables/Config.cmake)
+  
+include(SVMFunctions/Config.cmake)
 
-  include(StatisticsFunctions/Config.cmake)
+include(BayesFunctions/Config.cmake)
 
-  include(SupportFunctions/Config.cmake)
+include(DistanceFunctions/Config.cmake)
 
-  include(TransformFunctions/Config.cmake)
-
-  include(CommonTables/Config.cmake)
-
-  include(SVMFunctions/Config.cmake)
-
-  include(BayesFunctions/Config.cmake)
-
-  include(DistanceFunctions/Config.cmake)
-
-  include(InterpolationFunctions/Config.cmake)
+include(InterpolationFunctions/Config.cmake)
 
 include(WindowFunctions/Config.cmake)
 
 ### Includes
-target_include_directories(${PROJECT_NAME}
+target_include_directories(${CMSISDSP}
     PUBLIC "${DSP}/Include"
     PUBLIC "${YAHAL_DIR}/include/CPU/CMSIS"
 )
 
 include(configDsp.cmake)
 
-configDsp(${PROJECT_NAME})
+configDsp(${CMSISDSP})

@@ -12,9 +12,9 @@
 // ---------------------------------------------
 
 #include "task.h"
-#include "yahal_assert.h"
 #include <cstring>
 #include <utility>
+#include <cassert>
 
 // Definition of static members
 ///////////////////////////////
@@ -51,7 +51,7 @@ task::task(const char * n, uint16_t stack_size)
     // Allocate the stack
     _stack_size = stack_size;
     _stack_base = new uint8_t[_stack_size];
-    yahal_assert(_stack_base);
+    assert(_stack_base);
     _stack_ptr   = nullptr;
 
     // Initialize circular list attributes
@@ -63,7 +63,7 @@ task::task(const char * n, uint16_t stack_size)
 // public task methods
 //////////////////////
 void task::start(uint16_t priority, bool priv) {
-    yahal_assert((priority > 0) && !_linked_in);
+    assert((priority > 0) && !_linked_in);
 
     // Initialize the stack with a magic number
     for(uint16_t i=0; i < _stack_size; ++i) {
@@ -103,7 +103,8 @@ void task::sleep_ms(uint32_t ms) {
     task * c = task::currentTask();
     uint64_t until = millis() + ms;
     if (c) {
-        // Multitasking running: Use TCB entry '_sleep_until'
+        // Multitasking running: Use TCB entry and
+        // hand over control to another task
         c->_sleep_until = until;
         c->_state = state_t::SLEEPING;
         yield();
@@ -114,11 +115,11 @@ void task::sleep_ms(uint32_t ms) {
 }
 
 void task::suspend() {
-    _state  = state_t::SUSPENDED;
+    _state = state_t::SUSPENDED;
 }
 
 void task::resume() {
-    _state  = state_t::READY;
+    _state = state_t::READY;
 }
 
 void task::block(lock_base_interface * lbi) {
@@ -186,7 +187,7 @@ void task::_scheduler() {
         cur_ptr = cur_ptr->_next;
     }
 
-    yahal_assert(next_ptr);
+    assert(next_ptr);
 
     // Check if we need a context switch
     if (next_ptr != _run_ptr) {

@@ -1,4 +1,4 @@
-#include "usb_dcd_rp2040.h"
+#include "usb_dcd.h"
 #include "usb_device_controller.h"
 #include "usb_ms_compat_descriptor.h"
 #include "usb_msc_bot_device.h"
@@ -27,7 +27,7 @@ int main() {
     posix_io::inst.register_stderr(uart);
 
     // Set up LEDs
-    gpio_rp2040_pin led(13);
+    gpio_rp2040 led(13);
     led.gpioMode(GPIO::OUTPUT);
 
     // Setup two LEDs on the launchpad for blinking
@@ -38,14 +38,14 @@ int main() {
     led_green.set_on_color(0x000500);
 
     // Set up the driver stack for the SD card
-    gpio_rp2040_pin cs ( CS_PIN );     // CS Line of SPI interface
-    spi_rp2040      spi( SPI1, MISO_PIN, MOSI_PIN, SCLK_PIN, cs );
-    sd_spi_drv      sd ( spi );        // SD card low level driver
+    gpio_rp2040 cs ( CS_PIN );     // CS Line of SPI interface
+    spi_rp2040  spi( SPI1, MISO_PIN, MOSI_PIN, SCLK_PIN, cs );
+    sd_spi_drv  sd ( spi );        // SD card low level driver
 
     // Switch on USB logging
 //    usb_log::inst.setLevel(LOG_INFO);
     // USB Device driver
-    usb_dcd_rp2040 & driver = usb_dcd_rp2040::inst();
+    usb_dcd & driver = usb_dcd::inst();
     // USB device: Root object of USB descriptor tree
     usb_device device;
     // Generic USB Device Controller on top
@@ -95,12 +95,14 @@ int main() {
         if (ret != BLOCKIO::result_t::OK) {
             TUPP_LOG(LOG_ERROR, "Reading SD card failed with %d", ret);
         }
+        return BLOCKIO::result_t::OK;
     };
     msc_device.write_handler = [&](uint8_t * buff, uint32_t block) {
         auto ret = sd.writeBlock(buff, block, 1);
         if (ret != BLOCKIO::result_t::OK) {
             TUPP_LOG(LOG_ERROR, "Writing SD card failed with %d", ret);
         }
+        return BLOCKIO::result_t::OK;
     };
 
     //////////////////////

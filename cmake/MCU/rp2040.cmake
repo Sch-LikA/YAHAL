@@ -8,3 +8,7 @@ set(YAHAL_MCU "rp2040")
 
 # RP2040 has a cortex M0+
 include(CPU/cortex-m0plus)
+
+# Marker to detect MCU during compile time
+add_compile_definitions(RP2040)
+set(RP2040 1)

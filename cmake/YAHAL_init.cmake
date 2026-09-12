@@ -54,11 +54,34 @@ function(yahal_add_custom_targets TARGET)
     # Add a upload target using openocd if configuration was given
     if (OPENOCD_CONFIG)
         set(TF $<TARGET_FILE:${TARGET}>)
-        add_custom_target("upload_${TARGET}" 
-            openocd ${OPENOCD_CONFIG} -c "program \"${TF}\" verify reset exit"
-            DEPENDS ${TF}
-            VERBATIM
-        )
+        if (YAHAL_LOAD_INTO_RAM)
+            if (${YAHAL_MCU} STREQUAL rp2040)
+                add_custom_target("upload_${TARGET}"
+                    openocd ${OPENOCD_CONFIG} -c "init" -c "reset halt" -c "load_image ${TF}" -c "resume 0x20000009" -c "exit"
+                    DEPENDS ${TF}
+                    VERBATIM
+                )
+            endif ()
+            if (${YAHAL_MCU} STREQUAL rp2350)
+                add_custom_target("upload_${TARGET}"
+                    openocd ${OPENOCD_CONFIG} -c "init" -c "reset halt" -c "load_image ${TF}" -c "resume 0x20000109" -c "exit"
+                    DEPENDS ${TF}
+                    VERBATIM
+                )
+            endif ()
+        elseif(YAHAL_LOAD_INTO_PSRAM)
+            add_custom_target("upload_${TARGET}"
+                openocd ${OPENOCD_CONFIG} -c "init" -c "reset halt" -c "load_image ${TF}" -c "resume 0x11000109" -c "exit"
+                DEPENDS ${TF}
+                VERBATIM
+            )
+        else()
+            add_custom_target("upload_${TARGET}"
+                openocd ${OPENOCD_CONFIG} -c "program \"${TF}\" verify reset exit"
+                DEPENDS ${TF}
+                VERBATIM
+            )
+        endif()
     endif()
 endfunction()
 
@@ -108,8 +131,8 @@ function(yahal_add_extra_outputs TARGET)
     yahal_add_bin_output(${TARGET})
     yahal_add_dis_output(${TARGET})
 
-    # Add uf2 output for rp2040
-    if (${YAHAL_MCU} STREQUAL rp2040)
+    # Add uf2 output for rp2040 and rp2350
+    if (${YAHAL_MCU} STREQUAL rp2040 OR ${YAHAL_MCU} STREQUAL rp2350)
         yahal_add_uf2_output(${TARGET})
     endif()
 
@@ -128,19 +151,17 @@ else()
 endif()
 
 #
+# Set the default build type
+#
+if (NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
+
+#
 # Set default values for YAHAL flags
 #
-if (NOT DEFINED YAHAL_DEBUG_FLAGS)
-    set(YAHAL_DEBUG_FLAGS -g -gdwarf-3 -gstrict-dwarf)
-endif()
-if (NOT DEFINED YAHAL_OPT_FLAGS)
-    set(YAHAL_OPT_FLAGS -Og)
-endif()
 if (NOT DEFINED YAHAL_USE_NANO_SPECS)
     set(YAHAL_USE_NANO_SPECS 1)
-endif()
-if (NOT DEFINED YAHAL_ENABLE_ASSERTS)
-    set(YAHAL_ENABLE_ASSERTS 1)
 endif()
 if (NOT DEFINED YAHAL_WRAP_FLOAT)
     set(YAHAL_WRAP_FLOAT 1)
@@ -161,13 +182,6 @@ endif()
 if (YAHAL_USE_NANO_SPECS EQUAL 1)
     add_link_options("--specs=nano.specs")
 endif()
-if (YAHAL_ENABLE_ASSERTS EQUAL 1)
-    add_compile_options(-DDEBUG)
-else()
-    add_compile_options(-DNDEBUG)
-endif()
-
-add_compile_options(${YAHAL_DEBUG_FLAGS} ${YAHAL_OPT_FLAGS})
 
 if (${YAHAL_MCU} STREQUAL rp2040)
     if (YAHAL_WRAP_FLOAT EQUAL 1)

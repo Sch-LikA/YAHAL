@@ -1,0 +1,235 @@
+// ---------------------------------------------
+//           This file is part of
+//      _  _   __    _   _    __    __
+//     ( \/ ) /__\  ( )_( )  /__\  (  )
+//      \  / /(__)\  ) _ (  /(__)\  )(__
+//      (__)(__)(__)(_) (_)(__)(__)(____)
+//
+//     Yet Another HW Abstraction Library
+//      Copyright (C) Andreas Terstegge
+//      BSD Licensed (see file LICENSE)
+//
+// ---------------------------------------------
+//
+// UART driver for RP2350.
+//
+#include "uart_rp2350.h"
+#include "system_rp2350.h"
+#include "task.h"
+#include <cassert>
+
+using namespace _UART0_;
+using namespace _UART1_;
+using namespace _IO_BANK0_;
+using namespace _RESETS_;
+
+function<void(char)> uart_rp2350::_intHandler[2];
+
+int8_t uart_rp2350::_uart_tx_pins[2][6] =
+    { { 0, 12, 16, 28, 32, 44 }, { 4,  8, 20, 24, 36, 40 } };
+
+uart_rp2350::uart_rp2350(gpio_pin_t  tx_pin, gpio_pin_t  rx_pin,
+                         uint32_t    baud,   uart_mode_t mode)
+: _init(false), _tx(tx_pin), _rx(rx_pin), _baud(baud), _mode(mode) {
+
+    bool tx_found = false;
+    bool rx_found = false;
+    for (_index=0; _index < 2; ++_index) {
+        tx_found = false;
+        rx_found = false;
+        for (size_t i = 0; i < 6; ++i) {
+            if ( (tx_pin ==  _uart_tx_pins[_index][i]+0) ||
+                 (tx_pin == (_uart_tx_pins[_index][i]+2)) ) {
+                tx_found = true;
+            }
+            if ( (rx_pin ==  _uart_tx_pins[_index][i]+1) ||
+                 (rx_pin == (_uart_tx_pins[_index][i]+3)) ) {
+                rx_found = true;
+            }
+        }
+        if (tx_found && rx_found) break;
+    }
+    assert(tx_found && rx_found);
+
+    // Set register pointer
+    _uart     = (_index==0) ? &UART0     : &UART1;
+    _uart_set = (_index==0) ? &UART0_SET : &UART1_SET;
+    _uart_clr = (_index==0) ? &UART0_CLR : &UART1_CLR;
+}
+
+void uart_rp2350::init() {
+    // Take UART out of reset state
+    if (_index)  RESETS_CLR.RESET.UART1 = 1;
+    else         RESETS_CLR.RESET.UART0 = 1;
+    // Configure GPIO pins
+    if ((_tx.getGpio() % 4) == 0) {
+        _tx.setSEL(GPIO_CTRL_FUNCSEL__uart);
+    } else {
+        _tx.setSEL(GPIO_CTRL_FUNCSEL__uart_aux);
+    }
+    if (((_rx.getGpio()-1) % 4) == 0) {
+        _rx.setSEL(GPIO_CTRL_FUNCSEL__uart);
+    } else {
+        _rx.setSEL(GPIO_CTRL_FUNCSEL__uart_aux);
+    }
+    // Configure UART protocol (default 8N1)
+    uartMode(_mode);
+    // Set baud rate
+    setBaudrate(_baud);
+    // Enable UART & FIFOs
+    _uart_set->UARTCR.UARTEN <<= 1;
+    _uart_set->UARTLCR_H.FEN <<= 1;
+    _init = true;
+}
+
+uart_rp2350::~uart_rp2350() {
+    // Check if we need to de-configure
+    if (!_init) return;
+    // Wait for pending operations
+    while( (_uart->UARTFR.TXFE) == 0) ;
+    // Reset UART
+    if (_index)  RESETS_SET.RESET.UART1 = 1;
+    else         RESETS_SET.RESET.UART0 = 1;
+    // De-configure the digital RX/TX lines
+    _tx.setSEL( GPIO_CTRL_FUNCSEL__null );
+    _rx.setSEL( GPIO_CTRL_FUNCSEL__null );
+}
+
+bool uart_rp2350::available() {
+    if (!_init) init();
+    return !_uart->UARTFR.RXFE;
+}
+
+char uart_rp2350::getc() {
+    if (!_init) init();
+    // Wait until the RX Buffer is filled....
+    while( (_uart->UARTFR.RXFE) != 0) ;
+    // Transfer single char from RX buffer
+    return _uart->UARTDR.DATA;
+}
+
+void uart_rp2350::putc(char c) {
+    if (!_init) init();
+    // Wait until the TX FIFO is empty....
+    while( (_uart->UARTFR.TXFE) == 0) ;
+    // Transfer single char to TX buffer
+    _uart->UARTDR.DATA = (uint16_t)c;
+}
+
+int uart_rp2350::puts(const char *s) {
+    int len = 0;
+    while(*s) {
+        putc(*s++);
+        len++;
+    }
+    return len;
+}
+
+void uart_rp2350::uartMode(uart_mode_t mode) {
+    _mode = mode;
+
+    if (mode & UART::BITS_7) {
+        _uart->UARTLCR_H.WLEN = 2;
+    }
+    if (mode & UART::BITS_8) {
+        _uart->UARTLCR_H.WLEN = 3;
+    }
+    if (mode & UART::NO_PARITY) {
+        _uart->UARTLCR_H.PEN = 0;
+    }
+    if (mode & UART::EVEN_PARITY) {
+        _uart->UARTLCR_H.PEN = 1;
+        _uart->UARTLCR_H.EPS = 1;
+    }
+    if (mode & UART::ODD_PARITY) {
+        _uart->UARTLCR_H.PEN = 1;
+        _uart->UARTLCR_H.EPS = 0;
+    }
+    if (mode & UART::STOPBITS_1) {
+        _uart->UARTLCR_H.STP2 = 0;
+    }
+    if (mode & UART::STOPBITS_2) {
+        _uart->UARTLCR_H.STP2 = 1;
+    }
+}
+
+void uart_rp2350::setBaudrate(uint32_t baud) {
+    _baud = baud;
+    uint32_t baud_div = (8 * CLK_PERI) / _baud;
+    _uart->UARTIBRD =  (baud_div >> 7);
+    _uart->UARTFBRD = ((baud_div & 0x7f) + 1) / 2;
+    // dummy write
+    _uart_set->UARTLCR_H <<= 0;
+}
+
+void uart_rp2350::sendBreak(uint16_t ms) {
+    if (ms == 0) {
+        _uart_clr->UARTLCR_H.BRK <<= 1;
+    } else if (ms == 0xffff) {
+        _uart_set->UARTLCR_H.BRK <<= 1;
+    } else {
+        _uart_set->UARTLCR_H.BRK <<= 1;
+        task::sleep_ms(ms);
+        _uart_clr->UARTLCR_H.BRK <<= 1;
+    }
+}
+
+void uart_rp2350::setDTR(bool dtr) {
+    _uart->UARTCR.DTR = dtr;
+}
+
+void uart_rp2350::setRTS(bool rts) {
+    _uart->UARTCR.RTS = rts;
+}
+
+void uart_rp2350::uartAttachIrq(function<void(char)> f) {
+    if (!_init) init();
+    _intHandler[_index] = f;
+    // Enable RX interrupt
+    _uart_set->UARTIMSC.RXIM <<= 1;
+    _uart_set->UARTIMSC.RTIM <<= 1;
+    // Enable NVIC interrupt
+    NVIC_EnableIRQ((IRQn_Type)(UART0_IRQ_IRQn + _index));
+}
+
+void uart_rp2350::uartDetachIrq () {
+    if (!_init) init();
+    // Disable NVIC interrupt
+    NVIC_DisableIRQ((IRQn_Type)(UART0_IRQ_IRQn + _index));
+    // Disable RX interrupt
+    _uart_clr->UARTIMSC.RXIM <<= 1;
+    _uart_clr->UARTIMSC.RTIM <<= 1;
+    // Clear pending interrupts
+    _uart_set->UARTICR.RXIC <<= 1;
+    _uart_set->UARTICR.RTIC <<= 1;
+    // Clear handler
+    _intHandler[_index] = nullptr;
+}
+
+void uart_rp2350::uartEnableIrq () {
+    _uart_set->UARTIMSC.RXIM <<= 1;
+    _uart_set->UARTIMSC.RTIM <<= 1;
+}
+
+void uart_rp2350::uartDisableIrq() {
+    _uart_clr->UARTIMSC.RXIM <<= 1;
+    _uart_clr->UARTIMSC.RTIM <<= 1;
+}
+
+// Interrupt handler for UART0/1
+////////////////////////////////
+extern "C" {
+
+void UART0_IRQ_Handler(void) {
+    while(!UART0.UARTFR.RXFE) {
+        uart_rp2350::_intHandler[0](UART0.UARTDR.DATA);
+    }
+}
+
+void UART1_IRQ_Handler(void) {
+    while(!UART1.UARTFR.RXFE) {
+        uart_rp2350::_intHandler[1](UART1.UARTDR.DATA);
+    }
+}
+
+} // extern "C"

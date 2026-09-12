@@ -1,7 +1,21 @@
+// ---------------------------------------------
+//           This file is part of
+//      _  _   __    _   _    __    __
+//     ( \/ ) /__\  ( )_( )  /__\  (  )
+//      \  / /(__)\  ) _ (  /(__)\  )(__
+//      (__)(__)(__)(_) (_)(__)(__)(____)
+//
+//     Yet Another HW Abstraction Library
+//      Copyright (C) Andreas Terstegge
+//      BSD Licensed (see file LICENSE)
+//
+// ---------------------------------------------
+//
+// Startup code for RP2350.
+//
+#include "boot/boot_blocks.h"
 #include "system_rp2040.h"
-
 #include "RP2040.h"
-using namespace _PPB_;
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,7 +32,7 @@ void FUN(void) __attribute__ ((weak, alias(#FUN_ALIAS)));
 int FUN() __attribute__ ((weak, alias(#FUN_ALIAS)));
 
 // External variables and functions
-extern void     __cmsis_start(void);
+extern void reset_handler();
 extern uint32_t __StackTop;
 
 typedef void (*pFunc)(void);
@@ -67,7 +81,7 @@ WEAK_ALIAS_FUNC(RTC_IRQ_Handler,       Default_Handler)
 void (* const isr_vector[])(void) __attribute__((section(".isr_vector"), used)) = {
     (pFunc) &__StackTop,            // The initial stack pointer
 
-    Reset_Handler,                  // -15 The reset handler
+    reset_handler,                  // -15 The reset handler
     NMI_Handler,                    // -14 The NMI handler
     HardFault_Handler,              // -13 The hard fault handler
     0,                              // -12 Reserved
@@ -111,15 +125,27 @@ void (* const isr_vector[])(void) __attribute__((section(".isr_vector"), used)) 
     RTC_IRQ_Handler                 //  25 RTC_IRQ
 };
 
-// The ELF entry point. This code will hand over control to the ROM at 0x0,
-// which in turn will check the Flash for a runnable binary.
-void _elf_entry_point() {
-    PPB.VTOR.TBLOFF = 0;
-    uint32_t top_of_stack = *(uint32_t *)0x0;
-    uint32_t reset_func   = *(uint32_t *)0x4;
-    __set_MSP( top_of_stack );
-    ((void (*)())reset_func)();
-}
+#define MAJOR_VER 1
+#define MINOR_VER 0
+
+namespace BLOCKS {
+
+    constexpr blocks<0> start;
+    constexpr auto header   = HEADER    (start);
+    constexpr auto image    = IMAGE_DEF (header,
+                                         image_type::TYPE_EXE,
+                                         exe_security::UNSPECIFIED,
+                                         exe_cpu::CPU_ARM,
+                                         exe_chip::CHIP_RP2040);
+    constexpr auto version  = VERSION   (image, MAJOR_VER, MINOR_VER);
+    constexpr auto last     = LAST_ITEM (version, version.size() - header.size());
+    constexpr auto link     = LINK      (last, 0);
+    constexpr auto footer   = FOOTER    (link);
+};
+
+// Put the calculated boot blocks into the correct section during compile/link-time
+const auto boot_blocks __attribute__((section(".boot_blocks"), used)) = BLOCKS::footer;
+
 
 // The reset irq handler
 void Reset_Handler(void) {

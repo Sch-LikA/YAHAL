@@ -25,11 +25,13 @@ public:
     bool available() override;
     char getc() override;
     void putc(char c) override;
-    int  puts(const char *s);
+    size_t puts(const char *s);
 
     void uartMode(uart_mode_t mode) override;
-
     void setBaudrate(uint32_t) override;
+    void sendBreak(uint16_t ms) override;
+    void setDTR(bool dtr) override;
+    void setRTS(bool rts) override;
 
     // Interrupt handling
     void uartAttachIrq (function<void(char)> f) override;
